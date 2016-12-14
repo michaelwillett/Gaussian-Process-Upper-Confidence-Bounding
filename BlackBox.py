@@ -34,4 +34,4 @@ class BlackBoxND:
     
     @staticmethod
     def sinND(x):
-        return sum(np.sin([i/2 for i in x])) + np.random.normal(0, .05, 1)
+        return sum(np.sin([i/2 for i in x])) + np.random.normal(0, .005, 1)

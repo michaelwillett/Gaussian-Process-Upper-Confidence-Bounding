@@ -23,7 +23,7 @@ class GP_UCB:
     def minfunc(self,x):
         self.model.predict(np.array([x]))
         t = self.regret.size
-        t = 1
+        #t = 1
         
         # Get information gain
         if model.kernel == 'Linear':
@@ -37,11 +37,11 @@ class GP_UCB:
             e = (v + model.dim*(model.dim + 1)) / (2*v + model.dim*(model.dim + 1))
             self.IG = pow(t, e)
 
-        delta = .9      # delta \in (0,1): the lower this is, the more we explore uncertainty
+        delta = .01      # delta \in (0,1): the lower this is, the more we explore uncertainty
         normD = np.linalg.norm([x[1]-x[0] for x in self.domain])
-        self.beta_t = 2*np.log(self.dim*t*t*np.pi*np.pi/(6*delta)) 
+        self.beta_t = 2*np.log(normD*t*t*np.pi*np.pi/(6*delta)) 
         
-        #self.beta_t = self.IG*pow(np.log(t/delta),3)
+        #self.beta_t = pow(np.log(t/delta),3)
         
         mu_t = [item for sublist in self.model.ym for item in sublist] # compress from list of 1-element lists to list
         s2_t = [item for sublist in self.model.ys2 for item in sublist] # compress from list of 1-element lists to list
@@ -50,7 +50,8 @@ class GP_UCB:
         return  retv
     
     def UCB(self): 
-        x0 = [[sum(n)/2 for n in self.domain]]
+        #x0 = [[sum(n)/2 for n in self.domain]]
+        x0 = [self.x[len(self.x)-1]]
         
         params = {'approx_grad':True} 
         kwargs = {"method": "TNC", "bounds": self.domain, "options":params}
@@ -64,20 +65,29 @@ class GP_UCB:
     
     
     def Plot2D(self, x, reset = False):
-        self.model.predict(self.z)
+        
+        plt.ion()
+        fig = plt.figure()
+        self.ax = fig.add_subplot(111, projection='3d')
+        
+        x = [np.linspace(self.domain[i][0], self.domain[i][1], self.res[i]) for i in range(self.dim)]
+        z0 = np.array(list(it.product(x[0], x[1])))
+        
+        self.model.predict(z0)
         
         mp = np.reshape(self.model.ym, (self.res[0], self.res[1]))
         up = np.reshape(self.model.ym + self.model.ys2, (self.res[0], self.res[1]))
         dp = np.reshape(self.model.ym - self.model.ys2, (self.res[0], self.res[1]))
-        xp = np.reshape(self.z[:,0], (self.res[0], self.res[1]))
-        yp = np.reshape(self.z[:,1], (self.res[0], self.res[1]))
+        xp = np.reshape(z0[:,0], (self.res[0], self.res[1]))
+        yp = np.reshape(z0[:,1], (self.res[0], self.res[1]))
                 
         self.surf = self.ax.plot_surface(xp, yp, mp, color='blue', zorder=0, alpha=0.5)
         self.up = self.ax.plot_wireframe(xp, yp, up, color='green', rstride=5, cstride=5, zorder=1)
         self.dp = self.ax.plot_wireframe(xp, yp, dp, color='green', rstride=5, cstride=5, zorder=2)
         
-        z = self.model.predict(np.reshape(x, [1,2]))
-        self.pt = self.ax.scatter(x[0], x[1], z[0], marker='v', c='red', s=80, zorder=3)
+        x0 = self.UCB()
+        z = self.model.predict(np.reshape(x0, [1,2]))
+        self.pt = self.ax.scatter(x0[0], x0[1], z[0], marker='v', c='red', s=80, zorder=3)
         plt.pause(0.001)
         
         if reset:
@@ -91,22 +101,27 @@ class GP_UCB:
             
     def PlotRegret(self, reset = False):
         
-        T = self.regret.size+1
+        T = self.regret.size
 
         s2 = [item for sublist in self.model.ys2 for item in sublist]
         isg = 1/s2[0] 
         regretBound = np.sqrt(T*self.beta_t*self.IG*8/np.log(1+isg))
         
         self.regretBound = np.append(self.regretBound, regretBound)
-        
-        self.regplt = plt.plot(self.regret, color='b')
+        #self.regplt = 
+        self.regplt.plot(self.regret, color='b')
         #self.boundplt = plt.plot(self.regretBound, color='r')
+        
+        #self.hypplt = 
+        self.hypplt.plot(self.covF, color='b')
+        self.hypplt.plot(self.covTr, color='r')
         plt.pause(0.001)
         
-        if reset:
-            self.regplt.pop(0).remove()
+        if not reset:
+            #self.regplt.pop(0).remove()
+            #self.hypplt.pop(0).remove()
             #self.boundplt.pop(0).remove()
-        else:
+        #else:
             plt.ioff()
             plt.show()
             
@@ -116,11 +131,23 @@ class GP_UCB:
         ratio = round(gradTime*1000 / totalTime, 3)*100
         formatPoint = [ round(x, 4) for x in list(self.x[l-1]) ]
         
+        hyp = [x for x in self.model.covfunc.hyp]
+        hyp2 = np.linalg.norm(hyp)
+        cov = self.model.covfunc.getCovMatrix(self.model.x, None, 'train')
+        covF = np.linalg.norm(cov)
+        covTr = np.trace(cov)
+        
+        self.covF = np.append(self.covF, covF)
+        self.covTr = np.append(self.covTr, covTr)
+        
         print "Iteration " + `l` + ":"
         print "    sample point:  " + `formatPoint`
         print "    regret:        " + `round(self.regret[l-1]-self.regret[l-2],4)`
+        print "    total regret:  " + `round(self.regret[l-1],4)`
         print "    runtime:       " + `totalTime` + \
               "ms (decent: " + `ratio` + "%)"
+        print "    |params|_2:    " + `hyp2`
+        print "    cov_param:     " + `hyp`
     
     def Init1D(self):
         self.func = BlackBox.BlackBox1D.FunctionA
@@ -133,38 +160,45 @@ class GP_UCB:
     def Init2D(self):
         self.func = BlackBox.BlackBoxND.sinND
         self.domain = [(0, 10), (0, 10)]
+        self.optima = [3.1416]*2
         self.dim = 2
-        self.max_t = 1000
+        self.max_t = 25
         self.res = [100, 100]
         x = [np.linspace(self.domain[i][0], self.domain[i][1], self.res[i]) for i in range(self.dim)]
         self.z = np.array(list(it.product(x[0], x[1])))
+        self.kernel = 'RBF'
                 
-        plt.ion()
-        fig = plt.figure()
-        self.ax = fig.add_subplot(111, projection='2d')
         
-    def InitND(self, kernel='Linear'):
+        self.InitModel()
+        self.SetHyperParam()
+        
+    def InitND(self, N, kernel='Linear'):
         self.func = BlackBox.BlackBoxND.sinND
-        self.domain = [(0, 10), (0, 10), (0, 10), (0, 10), (0, 10), (0, 10), (0, 10), (0, 10)]
-        self.optima = [3.1416, 3.1416, 3.1416, 3.1416, 3.1416, 3.1416, 3.1416, 3.1416]
-        self.dim = 5
-        self.max_t = 5000
-        self.res = [11, 11, 11, 11, 11, 11, 11, 11]
-        x = [np.linspace(self.domain[i][0], self.domain[i][1], self.res[i]) for i in range(self.dim)]
-        self.z = np.array(list(it.product(x[0], x[1], x[2])))
+        self.domain = [(0, 10)]*N
+        self.optima = [3.1416]*N
+        self.dim = N
+        self.max_t = 5
+        self.res = [101]*N
+        #x = [np.linspace(self.domain[i][0], self.domain[i][1], self.res[i]) for i in range(self.dim)]
+        #self.z = np.array(list(it.product(x[0], x[1], x[2])))
         self.kernel = kernel
         
         plt.ion()
-        plt.figure()
-    
-    def GetOptima(self):
-        converged = False
+        fig = plt.figure(figsize=(14, 6))
+        self.regplt = fig.add_subplot(1,2,1)
+        self.hypplt = fig.add_subplot(1,2,2)
         
+        self.InitModel()
+        self.SetHyperParam()
+        
+    def InitModel(self):
         # initialize search space
         self.x = np.array([[sum(n)/2 for n in self.domain]])
         self.y = np.array([self.func(self.x[0])])
         self.regret = np.array([np.linalg.norm(self.x[0] - self.optima)])
         self.regretBound = np.array([1])
+        self.covF = np.array([0])
+        self.covTr = np.array([0])
         
         # specify model (GP regression)
         self.model = pyGPs.GPR()
@@ -178,13 +212,29 @@ class GP_UCB:
         
         self.model.setPrior(mean=m, kernel=k)
         
+    def SetHyperParam(self):
+        
+        for i in range(500):
+            x_t = np.random.uniform([x for x, y in self.domain], [y for x, y in self.domain], self.dim);
+            self.x = np.append(self.x, np.array([x_t]), axis=0)
+            self.y = np.append(self.y, self.func(x_t))
+            
+        self.model.getPosterior(self.x, self.y, False) # fit default model (mean zero & rbf kernel) with data
+        self.model.optimize(self.x, self.y)     # optimize hyperparamters (default optimizer: single run minimize)
+        self.PrintStatus(1, 1)
+        self.x = np.array([[sum(n)/2 for n in self.domain]])
+        self.y = np.array([self.func(self.x[0])])           
+        
+    
+    def GetOptima(self):
+        converged = False
+        t = 0
 
         #self.model.setNoise(0)
-        
         while not converged:
+            t += 1
             start = time.time()
             rslt = self.model.getPosterior(self.x, self.y, False) # fit default model (mean zero & rbf kernel) with data
-            self.model.optimize(self.x, self.y)     # optimize hyperparamters (default optimizer: single run minimize)
             end = time.time()
             
             self.post = rslt[1]
@@ -199,13 +249,31 @@ class GP_UCB:
             
             converged = self.TestConvergence(self.x)
             self.PrintStatus(end-start, time.time()-end)
-            self.PlotRegret(True)
+            #self.PlotRegret(True)
 
         
-        self.PlotRegret(False)
+        #self.PlotRegret(False)
         #self.Plot2D(x_t)
         
 if __name__ == '__main__':
     model = GP_UCB()
-    model.InitND('RBF')
-    model.GetOptima()
+    points = []
+    fregret = []
+    plt.ion()
+    #fig = plt.figure()
+    #ax = fig.add_subplot(111)
+    for i in range(1):
+        model.InitND(2, 'RBF')
+        model.GetOptima()
+        model.Plot2D(model.x)
+        points += [[ round(x, 4) for x in list(model.x[model.regret.size-1]) ]]
+        fregret += [round(model.regret[model.regret.size-1]-model.regret[model.regret.size-2],4)]
+        
+        #ax.plot(model.regret)
+        #plt.ioff()
+        
+    #plt.show()
+    print fregret
+    print np.mean(np.array(points), axis=0)
+    
+    #print "final time " + `time.time() - totalstart`
